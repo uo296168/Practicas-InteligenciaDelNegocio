@@ -1,0 +1,12 @@
+# Entorno PySpark de la practica
+services:
+  spark:
+    image: lucianosanchez/spark-practica:1.1
+    container_name: spark-practica
+    ports:
+      - "127.0.0.1:8888:8888"   # JupyterLab:         http://localhost:8888
+      - "127.0.0.1:4040:4040"   # Interfaz de Spark:  http://localhost:4040
+    volumes:
+      - ./notebooks:/home/estudiante/work
+    environment:
+      SPARK_DRIVER_MEMORY: "2g"

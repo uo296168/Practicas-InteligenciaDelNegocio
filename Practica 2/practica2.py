@@ -106,6 +106,8 @@ def regla_actual(D):
     return D["reclamaciones_12m"] + (1 - D["cliente_activo"])
 
 
+
+
 def azar(D):
     return np.random.default_rng(0).random(len(D))
 
@@ -121,7 +123,7 @@ def modelo_lr(escalado=None, imputador=None):
 
 mostrar([
     evaluar_regla("Regla actual", regla_actual, X_train, y_train),
-    evaluar_regla("Azar", azar, X_train, y_train),
+    evaluar_regla("Al azar", azar, X_train, y_train),
     validar("Modelo inicial", modelo_lr(), X_train, y_train),
 ])
 
@@ -132,9 +134,20 @@ mostrar([
 # trimestre, retirada = 1 - (saldo_actual + 100) / (saldo_hace_3m + 100), con los valores negativos y vacíos
 # sustituidos por 0. Compárala con la regla actual y con el modelo inicial.
 
+def regla_retirada(D):
+    retirada = 1 - (D["saldo_actual"] + 100) / (D["saldo_hace_3m"] + 100)
+
+    retirada = retirada.clip(lower=0).fillna(0)
+
+    return regla_actual(D) + 2 * retirada
+
+mostrar([
+    evaluar_regla("Regla actual", regla_actual, X_train, y_train),
+    evaluar_regla("Regla + retirada", regla_retirada, X_train, y_train),
+    validar("Modelo inicial", modelo_lr(), X_train, y_train),
+])
 # RESPUESTA (¿supera al modelo inicial? ¿qué implica para la decisión de usar un modelo?):
 #
-
 
 # %% [markdown]
 # ## 2. Redundancia (clase 4)
@@ -161,13 +174,20 @@ mostrar([
 # Comprueba que cliente_activo coincide siempre con su regla del diccionario 
 # (vuelve a la celda markdown con título "Datos" para ver esa "regla del banco").
 
+activo_calculado = (
+    (X_train["transacciones_mes"] >= 10)
+    | (X_train["accesos_app_mes"] >= 6)
+).astype(int)
+
+print((activo_calculado == X_train["cliente_activo"]).all())
+
 # RESPUESTA (¿qué columnas retirarías y por qué? ¿por qué no saldo_hace_3m, pese a su correlación con
 # saldo_actual? ¿por qué la correlación no revela que cliente_activo es redundante?):
 #
 
 
 # %% Columnas que se conservan
-X_train, X_test = X_train.drop(columns=["anio_nacimiento"]), X_test.drop(columns=["anio_nacimiento"])
+X_train, X_test = X_train.drop(columns=["anio_nacimiento", "cliente_activo"]), X_test.drop(columns=["anio_nacimiento", "cliente_activo"])
 
 
 # %% [markdown]
@@ -198,6 +218,11 @@ mostrar([validar(f"kNN · {nombre}", modelo_knn(e), X_train, y_train) for nombre
 # ## TAREA 3
 # Repite la comparación con la regresión logística (modelo_lr) en lugar del kNN.
 
+mostrar([
+    validar(f"LR · {nombre}", modelo_lr(e), X_train, y_train)
+    for nombre, e in ESCALADOS
+])
+
 # RESPUESTA (¿qué escalado eliges para el kNN y qué considera «parecido»? ¿por qué el escalado influye menos
 # en la regresión logística?):
 #
@@ -221,6 +246,10 @@ mostrar([validar(f"kNN · {nombre}", modelo_knn(e), X_train, y_train) for nombre
 def anadir_derivadas(D):
     D = D.copy()
     # TAREA 4: añade aquí la columna var_saldo
+    D["var_saldo"] = np.log(
+        (D["saldo_actual"] + 100) /
+        (D["saldo_hace_3m"] + 100)
+    )
     return D
 
 
@@ -348,6 +377,32 @@ mostrar(filas_sel)
 # Evalúa el modelo sin las dos variables compradas (sin seleccionar el resto) y calcula el ahorro
 # anual en una cartera de 250.000 clientes.
 
+columnas_sin_pago = [
+    c for c in X_train.columns
+    if c not in ["puntuacion_credito", "salario_estimado"]
+]
+
+mostrar([
+    validar(
+        "Con datos comprados",
+        Pipeline(
+            preparacion() +
+            [("modelo", LogisticRegression(max_iter=1000))]
+        ),
+        X_train,
+        y_train
+    ),
+    validar(
+        "Sin datos comprados",
+        Pipeline(
+            preparacion() +
+            [("modelo", LogisticRegression(max_iter=1000))]
+        ),
+        X_train[columnas_sin_pago],
+        y_train
+    )
+])
+
 # RESPUESTA (¿puede el banco dejar de comprarlas? ¿qué método de selección eliges y por qué? ¿por qué el
 # filtro descarta saldo_hace_3m cuando no existe var_saldo?):
 #
@@ -412,19 +467,23 @@ mostrar([validar(nombre, modelo, X_train[columnas], y_train) for nombre, modelo 
 # %% [markdown]
 # ## TAREA 8
 # Elige el modelo final y ejecuta la celda siguiente una sola vez.
-ELEGIDO = "logistica"  # "logistica" o "boosting"
+ELEGIDO = "boosting"  # "logistica" o "boosting"
 
 # RESPUESTA (resumen para la dirección comercial, sin términos técnicos y en seis líneas como máximo: a quién
 # llamar, resultado esperado frente a la regla actual, por qué ese modelo, qué datos dejar de comprar y qué
 # riesgo vigilar):
 #
 
+print("cliente_activo" in X_test.columns)
 
 # %% Evaluación en test
+
+X_test_original = X.loc[X_test.index]
+
 modelo = candidatos[ELEGIDO].fit(X_train[columnas], y_train)
 mostrar([
     {"Método": f"{ELEGIDO} · test", **indicadores(y_test, modelo.predict_proba(X_test[columnas])[:, 1])},
-    {"Método": "Regla actual · test", **indicadores(y_test, regla_actual(X_test))},
+    {"Método": "Regla actual · test", **indicadores(y_test, regla_actual(X_test_original))},
 ])
 
 # %%
